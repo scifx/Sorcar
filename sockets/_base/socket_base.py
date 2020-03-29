@@ -34,6 +34,10 @@ class ScNodeSocket:
     def draw_color(self, context, node):
         return self.color
     
+    def draw_layout(self, context, layout, node, text):
+        # Draw overridable custom layout of socket
+        layout.prop(node, self.default_prop, text=text)
+    
     def draw(self, context, layout, node, text):
         if (self.is_output):
             layout.label(text=text + " (" + self.get_label() + ")")
@@ -45,16 +49,25 @@ class ScNodeSocket:
                     layout.label(text=text)
                 else:
                     layout.prop(self, "hide", icon='RADIOBUT_OFF', icon_only=True, invert_checkbox=True)
-                    layout.column().prop(node, self.default_prop, text=text)
+                    self.draw_layout(context, layout, node, text)
     
     def execute(self, forced):
         # Execute node socket to get/set default_value
         if (self.is_output):
             return self.node.execute(forced)
         else:
-            if (self.is_linked):
-                if (self.links[0].from_socket.execute(forced)):
-                    ret, data = self.links[0].from_socket.get_data(self.default_type)
+            # if (len(self.links) > 0):
+            if (self.is_linked): # self.is_linked doesn't get updated quickly (when using realtime update & modify links)
+                from_node = self.links[0].from_node
+                from_socket = self.links[0].from_socket
+                while (from_node.bl_idname == "NodeReroute"):
+                    if (not from_node.inputs[0].is_linked):
+                        from_socket = None
+                        break
+                    from_socket = from_node.inputs[0].links[0].from_socket
+                    from_node = from_node.inputs[0].links[0].from_node
+                if (from_socket and from_socket.execute(forced)):
+                    ret, data = from_socket.get_data(self.default_type)
                     if(ret):
                         return self.set(data)
                     else:

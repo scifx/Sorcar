@@ -1,6 +1,11 @@
 import bpy
 from mathutils import Vector
 
+def sc_poll(context):
+    if hasattr(context.space_data, "tree_type"):
+        return context.space_data.tree_type == "ScNodeTree"
+    return False
+
 def focus_on_object(obj, edit=False):
     if (bpy.ops.object.mode_set.poll()):
         bpy.ops.object.mode_set(mode="OBJECT")
@@ -15,9 +20,14 @@ def focus_on_object(obj, edit=False):
 def remove_object(obj):
     if (obj):
         data = obj.data
-        bpy.data.objects.remove(object=obj)
-        if (data):
-            bpy.data.meshes.remove(mesh=data)
+        type = obj.type
+        bpy.data.objects.remove(obj, do_unlink=True, do_id_user=True)
+        if hasattr(data, "users"):
+            if data.users == 0:
+                if (type == 'MESH'):
+                    bpy.data.meshes.remove(data, do_unlink=True, do_id_user=True)
+                elif (type in ['CURVE', 'FONT']):
+                    bpy.data.curves.remove(data, do_unlink=True, do_id_user=True)
 
 def get_override(active=None, edit=False, selected=[]):
     override = bpy.context.copy()
@@ -27,8 +37,16 @@ def get_override(active=None, edit=False, selected=[]):
     if (active not in selected):
         selected.append(active)
     override["selected_object"] = selected
-    override["area"] = [i for i in bpy.context.screen.areas if i.type == 'VIEW_3D'][0]
-    override["region"] = [i for i in override["area"].regions if i.type == 'WINDOW'][0]
+    flag = False
+    for window in bpy.data.window_managers[0].windows:
+        for area in window.screen.areas:
+            if area.type == 'VIEW_3D':
+                override["area"] = area
+                override["region"] = [i for i in area.regions if i.type == 'WINDOW'][0]
+                flag = True
+                break
+        if (flag):
+            break
     return override
 
 def print_log(parent=None, child=None, func=None, msg=""):
@@ -63,8 +81,12 @@ def convert_data(data, from_type=None, to_type=None):
                 val = Vector(data).magnitude
             elif (from_type == "OBJECT"):
                 val = bpy.data.objects.find(data.name)
+            elif (from_type == "CURVE"):
+                val = bpy.data.curves.find(data.name)
             elif (from_type == "ARRAY"):
                 val = len(eval(data))
+            elif (from_type == "SELECTION_TYPE"):
+                return False, None
         elif (to_type == "BOOL"):
             if (from_type == "NUMBER"):
                 val = bool(data)
@@ -76,8 +98,12 @@ def convert_data(data, from_type=None, to_type=None):
                 val = bool(data)
             elif (from_type == "OBJECT"):
                 val = bool(data)
+            elif (from_type == "CURVE"):
+                val = bool(data)
             elif (from_type == "ARRAY"):
                 val = bool(eval(data))
+            elif (from_type == "SELECTION_TYPE"):
+                val = len(data) != 0
         elif (to_type == "STRING"):
             if (from_type == "NUMBER"):
                 val = str(data)
@@ -89,8 +115,12 @@ def convert_data(data, from_type=None, to_type=None):
                 val = str(Vector(data).to_tuple())
             elif (from_type == "OBJECT"):
                 val = str(repr(data))
+            elif (from_type == "CURVE"):
+                val = str(repr(data))
             elif (from_type == "ARRAY"):
                 val = data
+            elif (from_type == "SELECTION_TYPE"):
+                val = str(data)
         elif (to_type == "VECTOR"):
             if (from_type == "NUMBER"):
                 val = (data, data, data)
@@ -102,8 +132,12 @@ def convert_data(data, from_type=None, to_type=None):
                 val = data
             elif (from_type == "OBJECT"):
                 return False, None
+            elif (from_type == "CURVE"):
+                return False, None
             elif (from_type == "ARRAY"):
                 val = Vector((eval(data)[0], eval(data)[1], eval(data)[2])).to_tuple()
+            elif (from_type == "SELECTION_TYPE"):
+                val = Vector(float("VERT" in data), float("EDGE" in data), float("FACE" in data)).to_tuple()
         elif (to_type == "OBJECT"):
             if (from_type == "NUMBER"):
                 val = bpy.data.objects[data]
@@ -115,7 +149,28 @@ def convert_data(data, from_type=None, to_type=None):
                 return False, None
             elif (from_type == "OBJECT"):
                 val = data
+            elif (from_type == "CURVE"):
+                return False, None
             elif (from_type == "ARRAY"):
+                return False, None
+            elif (from_type == "SELECTION_TYPE"):
+                return False, None
+        elif (to_type == "CURVE"):
+            if (from_type == "NUMBER"):
+                return False, None
+            elif (from_type == "BOOL"):
+                return False, None
+            elif (from_type == "STRING"):
+                return False, None
+            elif (from_type == "VECTOR"):
+                return False, None
+            elif (from_type == "OBJECT"):
+                return False, None
+            elif (from_type == "CURVE"):
+                val = data
+            elif (from_type == "ARRAY"):
+                return False, None
+            elif (from_type == "SELECTION_TYPE"):
                 return False, None
         elif (to_type == "ARRAY"):
             if (from_type == "NUMBER"):
@@ -128,8 +183,55 @@ def convert_data(data, from_type=None, to_type=None):
                 val = str(list(data))
             elif (from_type == "OBJECT"):
                 val = "[" + repr(data) + "]"
+            elif (from_type == "CURVE"):
+                val = "[" + repr(data) + "]"
             elif (from_type == "ARRAY"):
+                val = data
+            elif (from_type == "SELECTION_TYPE"):
+                val = str(list(data))
+        elif (to_type == "SELECTION_TYPE"):
+            if (from_type == "NUMBER"):
+                return False, None
+            elif (from_type == "BOOL"):
+                return False, None
+            elif (from_type == "STRING"):
+                val = eval(data)
+            elif (from_type == "VECTOR"):
+                val = set()
+                if bool(data[0]):
+                    val.add("VERT")
+                if bool(data[1]):
+                    val.add("EDGE")
+                if bool(data[2]):
+                    val.add("FACE")
+            elif (from_type == "OBJECT"):
+                return False, None
+            elif (from_type == "CURVE"):
+                return False, None
+            elif (from_type == "ARRAY"): # Allows you to take in a boolean array
+                data_eval = eval(data)
+                val = set()
+                if bool(data_eval[0]):
+                    val.add("VERT")
+                if bool(data_eval[1]):
+                    val.add("EDGE")
+                if bool(data_eval[2]):
+                    val.add("FACE")
+            elif (from_type == "SELECTION_TYPE"):
                 val = data
         return True, val
     except:
         return False, None
+
+def selection_type_to_string(sel_type):
+    out = []
+    if "VERT" in sel_type:
+        out.append("Vertex")
+
+    if "EDGE" in sel_type:
+        out.append("Edge")
+
+    if "FACE" in sel_type:
+        out.append("Face")
+
+    return " + ".join(out)

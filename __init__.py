@@ -17,7 +17,7 @@
 bl_info = {
 	"name": "Sorcar",
     "author": "Punya Aachman",
-    "version": (3, 1, 0),
+    "version": (3, 1, 6),
     "blender": (2, 80, 0),
     "location": "Node Editor",
     "description": "Create procedural meshes using Node Editor",
@@ -30,11 +30,50 @@ import addon_utils
 import importlib
 import os
 
-from bpy.types import NodeTree, Operator, PropertyGroup
-from bpy.props import BoolProperty, StringProperty
+from bpy.types import NodeTree, Operator, PropertyGroup, AddonPreferences
+from bpy.props import BoolProperty, StringProperty, IntProperty
 from nodeitems_utils import NodeItem
 from .helper import update_each_frame, print_log
 from .tree.ScNodeCategory import ScNodeCategory
+from . import addon_updater_ops
+
+class SorcarPreferences(AddonPreferences):
+    bl_idname = __package__
+    bl_label = "Sorcar Preferences"
+
+    auto_check_update: BoolProperty(
+    name = "Auto-check for Update",
+    description = "If enabled, auto-check for updates using an interval",
+    default = False,
+    )
+    updater_intrval_months: IntProperty(
+        name='Months',
+        description = "Number of months between checking for updates",
+        default=0,
+        min=0
+    )
+    updater_intrval_days: IntProperty(
+        name='Days',
+        description = "Number of days between checking for updates",
+        default=7,
+        min=0,
+    )
+    updater_intrval_hours: IntProperty(
+        name='Hours',
+        description = "Number of hours between checking for updates",
+        default=0,
+        min=0,
+        max=23
+    )
+    updater_intrval_minutes: IntProperty(
+        name='Minutes',
+        description = "Number of minutes between checking for updates",
+        default=0,
+        min=0,
+        max=59
+    )
+    def draw(self, context):
+        addon_updater_ops.update_settings_ui(self, context)
 
 def import_tree():
     return getattr(importlib.import_module(".tree.ScNodeTree", __name__), "ScNodeTree")
@@ -63,18 +102,20 @@ def import_nodes(path="./"):
     return out
 
 all_classes = []
+addon_keymaps = []
 
 def register():
     print("-------------REGISTER SORCAR-------------")
-    path = repr([i for i in addon_utils.modules() if i.bl_info['name'] == bpy.path.display_name(__name__)][0]).split("from '")[1].split("__init__.py'>")[0]
+    path = repr([i for i in addon_utils.modules() if i.bl_info['name'] == "Sorcar"][0]).split("from '")[1].split("__init__.py'>")[0]
     classes_ops = import_ops(path)
     classes_sockets = import_sockets(path)
     classes_nodes = import_nodes(path)
 
-    global all_classes
+    global all_classes, addon_keymaps
     all_classes = [import_tree()]
     all_classes.extend(classes_ops)
     all_classes.extend(classes_sockets)
+    all_classes.append(SorcarPreferences)
 
     total_nodes = 0
     node_categories = []
@@ -89,11 +130,19 @@ def register():
     if not (update_each_frame in bpy.app.handlers.frame_change_pre):
         bpy.app.handlers.frame_change_pre.append(update_each_frame)
     
+    kc = bpy.context.window_manager.keyconfigs.addon
+    km = kc.keymaps.new(name="Node Generic", space_type='NODE_EDITOR')
+    kmi = km.keymap_items.new("sc.execute_node", 'E', 'PRESS')
+    kmi.active = True
+    addon_keymaps.append((km, kmi))
+    
+    addon_updater_ops.register(bl_info)
+    
     print_log("REGISTERED", msg="{} operators, {} sockets & {} nodes ({} categories)".format(len(classes_ops), len(classes_sockets), total_nodes, len(classes_nodes)))
 
 def unregister():
     print("------------UNREGISTER SORCAR----------------")
-    global all_classes
+    global all_classes, addon_keymaps
     all_classes.reverse()
 
     for i in all_classes:
@@ -102,5 +151,11 @@ def unregister():
     nodeitems_utils.unregister_node_categories("sc_node_categories")
     if (update_each_frame in bpy.app.handlers.frame_change_pre):
         bpy.app.handlers.frame_change_pre.remove(update_each_frame)
+    
+    for km, kmi in addon_keymaps:
+        km.keymap_items.remove(kmi)
+    addon_keymaps.clear()
+    
+    addon_updater_ops.unregister()
 
     print_log("UNREGISTERED", msg=str(len(all_classes)) + " classes")

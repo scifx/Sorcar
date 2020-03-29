@@ -1,8 +1,8 @@
 import bpy
 
-from bpy.props import BoolProperty
+from bpy.props import BoolProperty, StringProperty
 from bpy.types import NodeTree
-from ..helper import print_log
+from ..helper import print_log, update_each_frame
 
 class ScNodeTree(NodeTree):
     bl_idname = 'ScNodeTree'
@@ -11,7 +11,13 @@ class ScNodeTree(NodeTree):
 
     node = None
     links_hash = 0
-    prop_realtime: BoolProperty(name="Realtime")
+    variables: StringProperty(default="{}")
+
+    def update_realtime(self, context):
+        if not (update_each_frame in bpy.app.handlers.frame_change_pre):
+            bpy.app.handlers.frame_change_pre.append(update_each_frame)
+        return None
+    prop_realtime: BoolProperty(name="Realtime", update=update_realtime)
 
     def get_links_hash(self):
         links = self.links
@@ -24,7 +30,8 @@ class ScNodeTree(NodeTree):
         if (not self.nodes.get(str(self.node))):
             self.node = None
         for i in self.nodes:
-            i.reset(execute)
+            if (hasattr(i, "reset")):
+                i.reset(execute)
     
     def update_links(self):
         for i in self.links:
@@ -44,9 +51,23 @@ class ScNodeTree(NodeTree):
     
     def execute_node(self):
         self.reset_nodes(True)
-        if (self.nodes.get(str(self.node))):
+        n = self.nodes.get(str(self.node))
+        if (n):
             print_log(msg="---EXECUTE NODE---")
-            if (not self.nodes[self.node].execute()):
+            if (not n.execute()):
                 print_log(self.name, msg="Failed to execute...")
             else:
                 print_log(self.name, msg="Executed successfully!")
+    
+    def set_value(self, node_name="Cube", attr_name="in_size", value=1, refresh=True):
+        n = self.nodes.get(node_name)
+        if (n):
+            setattr(n, attr_name, value)
+            if (refresh):
+                self.execute_node();
+    
+    def set_preview(self, node_name="Cube"):
+        n = self.nodes.get(node_name)
+        if (n):
+            self.node = n.name
+            self.execute_node();
